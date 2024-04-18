@@ -7,13 +7,14 @@ This setup spools up the following containers
 * **nginx**
 * **Databases**
 	* **mysql** (8.0)
+	* **postgresql** (15)
 
 Content
 
 * [Quick Start](#quick-start)
 * [Installation](#installation)
-* [How to use `bin/cake`, `mysql` and other commandline utils now that you're using containers](#now-how-to-run-bincake-and-mysql)
-* [OK, so what did the defaults set up?](#ok-so-what-did-the-defaults-set-up)
+* [How to use `bin/cake`, `mysql` and other commandline utils now that you're using containers](#how-to-run-bincake-and-mysql)
+* [General setup description](#general-setup-description)
 * [Troubleshooting](#troubleshooting)
   * [nginx open logs/access.log failed no such file or directory](#nginx-open-logsaccesslog-failed-no-such-file-or-directory)
   * [creating a CakePHP app](#creating-a-cakephp-app)
@@ -34,23 +35,30 @@ Your folder structure should look like this:
 	        cakephp
 	            .. put your cake app in here ..
 	```
-3. Go to `docker-compose.yml` and delete the service you're not using, for example mysql
-	```	
+3. The default database is PostgreSQL, in order to use MySQL go to `docker-compose.yml` and comment/delete myapp-postgres and uncomment myapp-mysql like below. Otherwise go to the next step.
+	```	docker
 		services:
-			myapp-mysql:
-				image: 'mysql:8.0'
-				container_name: myapp-mysql
+			#myapp-postgres:
+			#	image: postgres:15-alpine
+			#	container_name: myapp-postgresql
+			#	working_dir: /var/www/myapp
 				...
+
+			myapp-mysql:
+			   image: 'mysql:8.0'
+			   container_name: myapp-mysql
+			   working_dir: /var/www/myapp
+					
 	```
-4. Go to `Dockerfile` on the `php-fpm` folder and comment the database extension you don't require, postgresql extension is set for default
-	```	
+4. PostgreSQL extension is set for default, if you´re using MySQL, go to `Dockerfile` on the `php-fpm` folder and comment the PostgreSQL extension and uncomment MySQL extension. Otherwise go to the next step.
+	```	dockerfile
 		#For PostgreSQL
-        php8.2-pgsql \
+        #php8.2-pgsql \
         #For MySQL
-        #php8.2-mysql php8.2-sqlite3 \
+        php8.2-mysql php8.2-sqlite3 \
 	```	
 5. From commandline, `cd` into the `docker` directory and run 
-	```
+	```bash
 	docker-compose up
 	```
 6. Go to `localhost:8180` and you'll see your app.
@@ -65,13 +73,13 @@ This is an environment file that your Docker Compose setup will look for automat
 By default the file will contain the following
 
 ```
-MYSQL_ROOT_PASSWORD=root
-MYSQL_DATABASE=myapp
-MYSQL_USER=myapp
-MYSQL_PASSWORD=myapp
+ROOT_PASSWORD=root
+DATABASE=myapp
+USER=myapp
+PASSWORD=myapp
 ```
 
-Docker Compose will automatically replace things like `${MYSQL_USER}` in the `docker-compose.yml` file with whatever corresponding variables it finds defined in `.env`
+Docker Compose will automatically replace things like `${USER}` in the `docker-compose.yml` file with whatever corresponding variables it finds defined in `.env`
 
 Lastly, **Find/Replace** `myapp` with the name of your app.
 
@@ -95,9 +103,47 @@ That's it. You can now access your CakePHP app at
 >
 > `docker-compose up -d`
 
-**Connecting to your database**
+**Connecting to PostgreSQL database**
 
-Also by default the first time you run the app it will create a `MySQL` database with the credentials you specified in your `.env` file (see above)
+After you run the app it will create a `PostgreSQL` database with the credentials you specified in your `.env` file (see above) 
+``` yaml
+host : myapp-postgres
+username : myapp
+password : myapp
+database : myapp
+```
+You can access your MySQL database (with your favorite GUI app) on
+
+`localhost:5432`
+
+Your `cakephp/config/app_local.php` file should be set to the following (it connects through the docker link)
+
+```php
+  'Datasources' => [
+    'default' => [
+      'host' => 'myapp-postgres',
+      'username' => 'myapp',
+      'password' => 'myapp',
+      'database' => 'myapp',
+    ],
+```
+
+In your `app.php` file yo need to change the database driver
+```php
+	...
+	'Datasources' => [
+        'default' => [
+            'className' => Connection::class,
+            'driver' => Postgres::class,
+            'persistent' => false,
+            'timezone' => 'UTC',
+	...
+
+```
+
+**Connecting to MySQL database**
+
+If you decide to use MySQL, when you run the app it will create a `MySQL` database with the credentials you specified in your `.env` file (see above)
 
 ``` yaml
 host : myapp-mysql
@@ -125,7 +171,7 @@ Your `cakephp/config/app_local.php` file should be set to the following (it conn
 
 To change these defaults edit the variables in the `docker/.env` file or tweak the `docker-compose.yml` file under `myapp-mysql`'s `environment` section.
 
-## Now, how to run `bin/cake` and `mysql`
+## How to run `bin/cake` and `mysql`
 
 Now that you're running stuff in containers you need to access the code a little differently
 
@@ -146,9 +192,9 @@ docker exec -it myapp-mysql /usr/bin/mysql -u root -p myapp
 > remember to replace `myapp` with whatever you really named the container and with your actual database name and user login
 
 
-## OK, so what did the defaults set up?
+## General setup description
 
-There are 4 containers that I use all the time that will be spooled up automatically
+There are 3 containers that will be spooled up automatically
 
 ### `myapp-nginx` - the web server
 
@@ -164,9 +210,12 @@ It automatically includes the following extensions
 
 * `php8.2-intl` (required for CakePHP 4.0+)
 * `php8.2-mbstring`
-
-If you uncomment the mysql extension, then
 * `php8.2-sqlite3` (required for DebugKit)
+
+If you use PostgreSQL, then
+* `php8.2-pgsql`
+
+If you use MySQL, then
 * `php8.2-mysql`
 
 It also includes some php ini overrides (see `php-fpm\php-ini-overrides.ini`)
@@ -177,7 +226,10 @@ You can configure what **PHP extensions** are loaded by editing `/php-fpm/Docker
 
 You can configure **PHP overrides** by editing `/php-fpm/php-ini-overrides.ini`
 
-### `myapp-mysql` - the database server
+### `myapp-postgresql` - the database server
+As the title says, this container runs the postgresql database
+
+### `myapp-mysql` - the database server (if you made the changes)
 
 The first time you run the docker containers it will create a folder in your root structure called `mysql` (at the same level as your `docker` folder) and this is where it will store all your database data.
 
@@ -211,6 +263,6 @@ and then, inside the container
 ```bash
 composer create-project --prefer-dist cakephp/app:~4.0 .
 ```
-Next, fix the database connection strings by following the steps in [Connecting to your database](#connecting-to-your-database) (above).
+Next, fix the database connection strings by following the steps in [Connecting to PostgreSQL database](#connecting-to-postgresql-database) (above).
 
 That's it. You should have lots of happy green checkmarks at `localhost:8180` or whatever you set nginx to respond to.
